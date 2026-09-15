@@ -109,6 +109,17 @@
   .panel h3{font-size:15px;margin-bottom:14px;text-transform:uppercase;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
   .pending-badge{font-family:"Manrope",sans-serif;font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--tangerine);background:var(--tangerine-tint);border:1px solid var(--tangerine);border-radius:100px;padding:3px 9px;}
   .load-quadrant{margin-top:18px;}
+
+  /* ---- weekly board ---- */
+  .week-board{margin-top:18px;}
+  .board-badge{background:var(--teal-tint);color:var(--teal-strong);border-color:var(--teal);}
+  .week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;}
+  @media (max-width:900px){ .week-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));} }
+  .week-day{background:var(--bg-sunk);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;}
+  .week-day-label{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);}
+  .week-day textarea{width:100%;min-height:110px;resize:vertical;background:var(--bg-elevated);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:8px;font-family:"Manrope",sans-serif;font-size:12.5px;line-height:1.45;}
+  .week-day textarea:disabled{opacity:.5;}
+  .week-status{font-size:10px;color:var(--ink-faint);min-height:12px;}
   .hist-table{width:100%;border-collapse:collapse;}
   .hist-table th,.hist-table td{padding:7px 8px;text-align:left;font-size:12.5px;border-bottom:1px solid var(--line);}
   .hist-table th{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-faint);}
@@ -229,11 +240,14 @@
 
   function el(html){ var t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; }
 
+  var DASHBOARD_HIDDEN_IDS = ['vicente', 'aguilera', 'gonzalez'];
+
   function renderDashboard(){
     var wrap = el('<div></div>');
     var today = todayStr();
+    var visiblePlayers = players.filter(function(p){ return DASHBOARD_HIDDEN_IDS.indexOf(p.id) === -1; });
 
-    var rows = players.map(function(p){
+    var rows = visiblePlayers.map(function(p){
       var resp = responsesByPlayer[p.id] || [];
       var rpe = rpeByPlayer[p.id] || [];
       var todays = resp.filter(function(r){ return r.date === today; });
@@ -247,14 +261,14 @@
     var rpeAvg = withRpe.length ? round1(withRpe.reduce(function(a,r){return a+r.lastRpe.value;},0)/withRpe.length) : null;
 
     var summary = el('<div class="summary"></div>');
-    summary.appendChild(statFigure('Readiness — hoy', readyAvg===null?'–':readyAvg, answered.length+'/'+players.length+' han respondido esta mañana', 'accent'));
-    summary.appendChild(statFigure('Carga del equipo — RPE', rpeAvg===null?'–':rpeAvg, withRpe.length+'/'+players.length+' con última sesión registrada', ''));
-    summary.appendChild(statFigure('Plantilla', players.length, 'jugadores en el sistema', ''));
+    summary.appendChild(statFigure('Readiness — hoy', readyAvg===null?'–':readyAvg, answered.length+'/'+visiblePlayers.length+' han respondido esta mañana', 'accent'));
+    summary.appendChild(statFigure('Carga del equipo — RPE', rpeAvg===null?'–':rpeAvg, withRpe.length+'/'+visiblePlayers.length+' con última sesión registrada', ''));
+    summary.appendChild(statFigure('Plantilla', visiblePlayers.length, 'jugadores en el sistema', ''));
     wrap.appendChild(summary);
 
     var panel = el('<div class="roster-panel"></div>');
     var head = el('<div class="roster-head"><h2>Plantilla</h2><span class="count"></span></div>');
-    head.querySelector('.count').textContent = players.length + ' jugadores';
+    head.querySelector('.count').textContent = visiblePlayers.length + ' jugadores';
     panel.appendChild(head);
     panel.appendChild(el('<div class="roster-cols"><span>Jugador</span><span>Readiness · 14 días</span><span>RPE · última sesión</span><span>Readiness · hoy</span><span></span></div>'));
 
@@ -359,7 +373,49 @@
 
     wrap.appendChild(grid);
     wrap.appendChild(renderLoadQuadrant(rpe));
+    wrap.appendChild(renderWeeklyBoard(playerId));
     return wrap;
+  }
+
+  function renderWeeklyBoard(playerId){
+    var panel = el('<div class="panel week-board"><h3>Tablón semanal <span class="pending-badge board-badge">Compartido con el prepa</span></h3></div>');
+    var days = [
+      {key:'mon', label:'Lunes'}, {key:'tue', label:'Martes'}, {key:'wed', label:'Miércoles'},
+      {key:'thu', label:'Jueves'}, {key:'fri', label:'Viernes'}, {key:'sat', label:'Sábado'}, {key:'sun', label:'Domingo'}
+    ];
+    var gridEl = el('<div class="week-grid"></div>');
+    var textareas = {};
+    days.forEach(function(d){
+      var card = el('<div class="week-day"></div>');
+      var label = el('<div class="week-day-label"></div>'); label.textContent = d.label;
+      var ta = el('<textarea placeholder="Ejercicios / notas…"></textarea>');
+      ta.disabled = true;
+      var status = el('<div class="week-status"></div>');
+      ta.addEventListener('blur', function(){
+        status.textContent = 'Guardando…';
+        var patch = { updatedAt: Date.now() };
+        patch[d.key] = ta.value;
+        db.collection('training_plans').doc(playerId).set(patch, { merge:true }).then(function(){
+          status.textContent = 'Guardado';
+          setTimeout(function(){ status.textContent = ''; }, 1500);
+        }).catch(function(){ status.textContent = 'Error al guardar'; });
+      });
+      card.appendChild(label);
+      card.appendChild(ta);
+      card.appendChild(status);
+      textareas[d.key] = ta;
+      gridEl.appendChild(card);
+    });
+    panel.appendChild(gridEl);
+
+    db.collection('training_plans').doc(playerId).get().then(function(doc){
+      var data = doc.exists ? doc.data() : {};
+      days.forEach(function(d){ textareas[d.key].value = data[d.key] || ''; textareas[d.key].disabled = false; });
+    }).catch(function(){
+      days.forEach(function(d){ textareas[d.key].disabled = false; });
+    });
+
+    return panel;
   }
 
   function renderLoadQuadrant(rpeAsc){
